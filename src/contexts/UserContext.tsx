@@ -26,6 +26,8 @@ interface UserContextType {
   setUserData: (data: UserData) => void
   setUserProfile: (profile: UserProfile) => void
   hasCompleteProfile: boolean
+  updateUserData: (data: Partial<UserData>) => void
+  updateUserProfile: (profile: Partial<UserProfile>) => void
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
@@ -65,6 +67,22 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem("userProfile", JSON.stringify(profile))
   }
 
+  const updateUserData = (data: Partial<UserData>) => {
+    if (userData) {
+      const updatedData = { ...userData, ...data }
+      setUserDataState(updatedData)
+      localStorage.setItem("userData", JSON.stringify(updatedData))
+    }
+  }
+
+  const updateUserProfile = (profile: Partial<UserProfile>) => {
+    if (userProfile) {
+      const updatedProfile = { ...userProfile, ...profile }
+      setUserProfileState(updatedProfile)
+      localStorage.setItem("userProfile", JSON.stringify(updatedProfile))
+    }
+  }
+
   const hasCompleteProfile = userProfile !== null
 
   return (
@@ -75,6 +93,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserData,
         setUserProfile,
         hasCompleteProfile,
+        updateUserData,
+        updateUserProfile,
       }}
     >
       {children}

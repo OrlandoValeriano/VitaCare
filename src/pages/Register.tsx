@@ -4,7 +4,6 @@ import type React from "react"
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "../contexts/AuthContext"
-import { useUser } from "../contexts/UserContext"
 
 const Register: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -15,9 +14,9 @@ const Register: React.FC = () => {
     contraseña: "",
   })
   const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
   const { register } = useAuth()
-  const { setUserData } = useUser()
   const navigate = useNavigate()
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -27,20 +26,29 @@ const Register: React.FC = () => {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setIsLoading(true)
 
     if (Object.values(formData).some((value) => value.trim() === "")) {
       setError("Todos los campos son obligatorios")
+      setIsLoading(false)
       return
     }
 
-    if (register(formData)) {
-      setUserData(formData)
-      navigate("/complete-profile")
-    } else {
+    try {
+      const success = await register(formData)
+
+      if (success) {
+        navigate("/complete-profile")
+      } else {
+        setError("Error al registrar usuario. El nombre de usuario podría estar en uso.")
+      }
+    } catch (error) {
       setError("Error al registrar usuario")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -60,6 +68,7 @@ const Register: React.FC = () => {
             onChange={handleChange}
             className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
             required
+            disabled={isLoading}
           />
 
           <input
@@ -70,6 +79,7 @@ const Register: React.FC = () => {
             onChange={handleChange}
             className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
             required
+            disabled={isLoading}
           />
 
           <input
@@ -80,6 +90,7 @@ const Register: React.FC = () => {
             onChange={handleChange}
             className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
             required
+            disabled={isLoading}
           />
 
           <input
@@ -90,6 +101,7 @@ const Register: React.FC = () => {
             onChange={handleChange}
             className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
             required
+            disabled={isLoading}
           />
 
           <input
@@ -100,16 +112,18 @@ const Register: React.FC = () => {
             onChange={handleChange}
             className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
             required
+            disabled={isLoading}
           />
 
           {error && <div className="text-red-400 text-sm text-center">{error}</div>}
 
           <button
             type="submit"
-            className="w-full text-gray-900 py-3 rounded-lg hover:opacity-90 transition duration-200 font-medium"
+            disabled={isLoading}
+            className="w-full text-gray-900 py-3 rounded-lg hover:opacity-90 transition duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#C3FFD3" }}
           >
-            Registrarse
+            {isLoading ? "Registrando..." : "Registrarse"}
           </button>
         </form>
 

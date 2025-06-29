@@ -1,31 +1,95 @@
 "use client"
 
 import type React from "react"
-import { useState, useRef } from "react"
-import { Edit, Camera, User, X, Plus } from "lucide-react"
+import { useState, useRef, useEffect } from "react"
+import { Edit, Camera, User, X, Plus, Save, AlertCircle, CheckCircle } from "lucide-react"
 import Layout from "../components/Layout"
-import { useUser } from "../contexts/UserContext"
+import { useAuth } from "../contexts/AuthContext"
+import { profileService } from "../services/profileService"
+
 
 const Profile: React.FC = () => {
-  const { userData, userProfile, setUserData, setUserProfile } = useUser()
+  const { currentUser, setUserData, setUserProfile } = useAuth()
   const [profileImage, setProfileImage] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Datos originales (para cancelar edición)
+  const [originalData, setOriginalData] = useState<any>(null)
 
+  // Datos editables
   const [editableData, setEditableData] = useState({
-    nombre: userData?.nombre || "",
-    apellidoPaterno: userData?.apellidoPaterno || "",
-    apellidoMaterno: userData?.apellidoMaterno || "",
-    tipoPaciente: userProfile?.tipoPaciente || "Ambulatorio",
-    edad: userProfile?.edad || 65,
-    peso: userProfile?.peso || 87,
-    talla: userProfile?.talla ? userProfile.talla / 100 : 1.75, // Convertir cm a metros
-    condiciones: userProfile?.condiciones || ["Hipertensión", "Asma"],
-    alergias: userProfile?.alergias || ["Penicilina"],
+    nombre: "",
+    apellidoPaterno: "",
+    apellidoMaterno: "",
+    tipoPaciente: "Ambulatorio",
+    edad: 0,
+    peso: 0,
+    talla: 0, // En metros para mostrar
+    condiciones: [] as string[],
+    alergias: [] as string[],
   })
 
   const [newCondition, setNewCondition] = useState("")
   const [newAllergy, setNewAllergy] = useState("")
+
+  useEffect(() => {
+    loadUserProfile()
+  }, [currentUser])
+
+  const loadUserProfile = async () => {
+    if (!currentUser) return
+
+    setLoading(true)
+    setError("")
+
+    try {
+      const completeProfile = await profileService.getCompleteUserProfile(currentUser.id_usuario)
+
+      if (completeProfile) {
+        const { user, profile, conditions, allergies } = completeProfile
+
+        const profileData = {
+          nombre: user.nombre || "",
+          apellidoPaterno: user.apellido_paterno || "",
+          apellidoMaterno: user.apellido_materno || "",
+          tipoPaciente: profile?.tipo_paciente || "Ambulatorio",
+          edad: profile?.edad || 0,
+          peso: profile?.peso_kg || 0,
+          talla: profile?.talla_cm ? profile.talla_cm / 100 : 0, // Convertir cm a metros
+          condiciones: conditions || [],
+          alergias: allergies || [],
+        }
+
+        setEditableData(profileData)
+        setOriginalData(profileData) // Guardar datos originales
+      } else {
+        // Si no hay perfil, usar datos básicos del usuario
+        const basicData = {
+          nombre: currentUser.nombre || "",
+          apellidoPaterno: currentUser.apellido_paterno || "",
+          apellidoMaterno: currentUser.apellido_materno || "",
+          tipoPaciente: "Ambulatorio",
+          edad: 0,
+          peso: 0,
+          talla: 0,
+          condiciones: [],
+          alergias: [],
+        }
+        setEditableData(basicData)
+        setOriginalData(basicData)
+      }
+    } catch (error) {
+      console.error("Error loading user profile:", error)
+      setError("Error al cargar el perfil del usuario")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -38,28 +102,73 @@ const Profile: React.FC = () => {
     }
   }
 
-  const handleSave = () => {
-    // Actualizar datos del usuario
-    if (userData) {
-      setUserData({
-        ...userData,
+  const handleSave = async () => {
+    if (!currentUser) return
+
+    setSaving(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      const success = await profileService.updateCompleteProfile(currentUser.id_usuario, {
         nombre: editableData.nombre,
-        apellidoPaterno: editableData.apellidoPaterno,
-        apellidoMaterno: editableData.apellidoMaterno,
+        apellido_paterno: editableData.apellidoPaterno,
+        apellido_materno: editableData.apellidoMaterno,
+        edad: editableData.edad,
+        peso_kg: editableData.peso,
+        talla_cm: Math.round(editableData.talla * 100), // Convertir metros a cm
+        tipo_paciente: editableData.tipoPaciente,
+        condiciones: editableData.condiciones,
+        alergias: editableData.alergias,
       })
+
+      if (success) {
+        // Actualizar contexto de usuario
+        if (setUserData) {
+          setUserData({
+            ...currentUser,
+            nombre: editableData.nombre,
+            apellido_paterno: editableData.apellidoPaterno,
+            apellido_materno: editableData.apellidoMaterno,
+          })
+        }
+
+        if (setUserProfile) {
+          setUserProfile({
+            id_perfil: 0, // Se actualizará automáticamente
+            id_usuario: currentUser.id_usuario,
+            edad: editableData.edad,
+            talla_cm: Math.round(editableData.talla * 100),
+            peso_kg: editableData.peso,
+            tipo_paciente: editableData.tipoPaciente,
+          })
+        }
+
+        setOriginalData({ ...editableData }) // Actualizar datos originales
+        setIsEditing(false)
+        setSuccess("Perfil actualizado correctamente")
+
+        // Limpiar mensaje de éxito después de 3 segundos
+        setTimeout(() => setSuccess(""), 3000)
+      } else {
+        setError("Error al actualizar el perfil")
+      }
+    } catch (error) {
+      console.error("Error saving profile:", error)
+      setError("Error al guardar los cambios")
+    } finally {
+      setSaving(false)
     }
+  }
 
-    // Actualizar perfil del usuario
-    setUserProfile({
-      tipoPaciente: editableData.tipoPaciente,
-      edad: editableData.edad,
-      peso: editableData.peso,
-      talla: Math.round(editableData.talla * 100), // Convertir metros a cm
-      condiciones: editableData.condiciones,
-      alergias: editableData.alergias,
-    })
-
+  const handleCancel = () => {
+    // Restaurar datos originales
+    if (originalData) {
+      setEditableData({ ...originalData })
+    }
     setIsEditing(false)
+    setError("")
+    setSuccess("")
   }
 
   const addCondition = () => {
@@ -96,7 +205,18 @@ const Profile: React.FC = () => {
     })
   }
 
-  const fullName = `${editableData.nombre} ${editableData.apellidoPaterno} ${editableData.apellidoMaterno}`
+  const fullName = `${editableData.nombre} ${editableData.apellidoPaterno} ${editableData.apellidoMaterno}`.trim()
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-gray-900 pb-20 flex items-center justify-center">
+          <div className="text-white text-lg">Cargando perfil...</div>
+        </div>
+      </Layout>
+    )
+  }
+  
 
   return (
     <Layout>
@@ -107,6 +227,21 @@ const Profile: React.FC = () => {
         </div>
 
         <div className="p-4 space-y-6">
+          {/* Mensajes de estado */}
+          {error && (
+            <div className="bg-red-900 border border-red-700 text-red-100 px-4 py-3 rounded-lg flex items-center">
+              <AlertCircle size={20} className="mr-2" />
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="bg-green-900 border border-green-700 text-green-100 px-4 py-3 rounded-lg flex items-center">
+              <CheckCircle size={20} className="mr-2" />
+              {success}
+            </div>
+          )}
+
           {/* Foto de perfil */}
           <div className="flex justify-center">
             <div className="relative">
@@ -159,7 +294,7 @@ const Profile: React.FC = () => {
                 />
               </div>
             ) : (
-              <span className="text-white text-lg font-medium">{fullName}</span>
+              <span className="text-white text-lg font-medium">{fullName || "Sin nombre"}</span>
             )}
           </div>
 
@@ -197,7 +332,7 @@ const Profile: React.FC = () => {
                   <input
                     type="number"
                     value={editableData.edad}
-                    onChange={(e) => setEditableData({ ...editableData, edad: Number.parseInt(e.target.value) })}
+                    onChange={(e) => setEditableData({ ...editableData, edad: Number.parseInt(e.target.value) || 0 })}
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
                   />
                 ) : (
@@ -205,7 +340,7 @@ const Profile: React.FC = () => {
                     className="inline-block px-3 py-1 rounded-full text-sm font-medium text-gray-800"
                     style={{ backgroundColor: "#E2FAF9" }}
                   >
-                    {editableData.edad}
+                    {editableData.edad || "No definido"}
                   </span>
                 )}
               </div>
@@ -215,8 +350,9 @@ const Profile: React.FC = () => {
                 {isEditing ? (
                   <input
                     type="number"
+                    step="0.1"
                     value={editableData.peso}
-                    onChange={(e) => setEditableData({ ...editableData, peso: Number.parseInt(e.target.value) })}
+                    onChange={(e) => setEditableData({ ...editableData, peso: Number.parseFloat(e.target.value) || 0 })}
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
                   />
                 ) : (
@@ -224,7 +360,7 @@ const Profile: React.FC = () => {
                     className="inline-block px-3 py-1 rounded-full text-sm font-medium text-gray-800"
                     style={{ backgroundColor: "#E2FAF9" }}
                   >
-                    {editableData.peso}
+                    {editableData.peso || "No definido"}
                   </span>
                 )}
               </div>
@@ -236,7 +372,9 @@ const Profile: React.FC = () => {
                     type="number"
                     step="0.01"
                     value={editableData.talla}
-                    onChange={(e) => setEditableData({ ...editableData, talla: Number.parseFloat(e.target.value) })}
+                    onChange={(e) =>
+                      setEditableData({ ...editableData, talla: Number.parseFloat(e.target.value) || 0 })
+                    }
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
                   />
                 ) : (
@@ -244,7 +382,7 @@ const Profile: React.FC = () => {
                     className="inline-block px-3 py-1 rounded-full text-sm font-medium text-gray-800"
                     style={{ backgroundColor: "#E2FAF9" }}
                   >
-                    {editableData.talla}
+                    {editableData.talla || "No definido"}
                   </span>
                 )}
               </div>
@@ -252,25 +390,29 @@ const Profile: React.FC = () => {
 
             {/* Condiciones */}
             <div>
-              <label className="block text-white text-sm font-medium mb-2">Condiciones:</label>
+              <label className="block text-white text-sm font-medium mb-2">Condiciones médicas:</label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {editableData.condiciones.map((condition, index) => (
-                  <span
-                    key={index}
-                    className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-gray-800"
-                    style={{ backgroundColor: "#E2FAF9" }}
-                  >
-                    {condition}
-                    {isEditing && (
-                      <button
-                        onClick={() => removeCondition(condition)}
-                        className="ml-2 text-gray-600 hover:text-gray-800"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </span>
-                ))}
+                {editableData.condiciones.length > 0 ? (
+                  editableData.condiciones.map((condition, index) => (
+                    <span
+                      key={`condition-${index}`}
+                      className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-gray-800"
+                      style={{ backgroundColor: "#E2FAF9" }}
+                    >
+                      {condition}
+                      {isEditing && (
+                        <button
+                          onClick={() => removeCondition(condition)}
+                          className="ml-2 text-gray-600 hover:text-gray-800"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-gray-400 text-sm">No hay condiciones registradas</span>
+                )}
               </div>
               {isEditing && (
                 <div className="flex space-x-2">
@@ -297,20 +439,27 @@ const Profile: React.FC = () => {
             <div>
               <label className="block text-white text-sm font-medium mb-2">Alergias:</label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {editableData.alergias.map((allergy, index) => (
-                  <span
-                    key={index}
-                    className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-gray-800"
-                    style={{ backgroundColor: "#E2FAF9" }}
-                  >
-                    {allergy}
-                    {isEditing && (
-                      <button onClick={() => removeAllergy(allergy)} className="ml-2 text-gray-600 hover:text-gray-800">
-                        <X size={14} />
-                      </button>
-                    )}
-                  </span>
-                ))}
+                {editableData.alergias.length > 0 ? (
+                  editableData.alergias.map((allergy, index) => (
+                    <span
+                      key={`allergy-${index}`}
+                      className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-gray-800"
+                      style={{ backgroundColor: "#E2FAF9" }}
+                    >
+                      {allergy}
+                      {isEditing && (
+                        <button
+                          onClick={() => removeAllergy(allergy)}
+                          className="ml-2 text-gray-600 hover:text-gray-800"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-gray-400 text-sm">No hay alergias registradas</span>
+                )}
               </div>
               {isEditing && (
                 <div className="flex space-x-2">
@@ -340,13 +489,25 @@ const Profile: React.FC = () => {
               <>
                 <button
                   onClick={handleSave}
-                  className="flex-1 py-3 rounded-lg font-medium text-gray-800 hover:opacity-90 transition-colors"
+                  disabled={saving}
+                  className="flex-1 py-3 rounded-lg font-medium text-gray-800 hover:opacity-90 transition-colors flex items-center justify-center"
                   style={{ backgroundColor: "#C3FFD3" }}
                 >
-                  Guardar cambios
+                  {saving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-800 mr-2"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={20} className="mr-2" />
+                      Guardar cambios
+                    </>
+                  )}
                 </button>
                 <button
-                  onClick={() => setIsEditing(false)}
+                  onClick={handleCancel}
+                  disabled={saving}
                   className="flex-1 py-3 rounded-lg font-medium text-white bg-gray-600 hover:bg-gray-500 transition-colors"
                 >
                   Cancelar
@@ -355,9 +516,10 @@ const Profile: React.FC = () => {
             ) : (
               <button
                 onClick={() => setIsEditing(true)}
-                className="w-full py-3 rounded-lg font-medium text-gray-800 hover:opacity-90 transition-colors"
+                className="w-full py-3 rounded-lg font-medium text-gray-800 hover:opacity-90 transition-colors flex items-center justify-center"
                 style={{ backgroundColor: "#C3FFD3" }}
               >
+                <Edit size={20} className="mr-2" />
                 Editar perfil
               </button>
             )}

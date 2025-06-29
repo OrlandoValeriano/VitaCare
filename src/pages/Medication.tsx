@@ -1,9 +1,11 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Plus, X, Clock, Pill, Archive, FileText, CheckCircle } from "lucide-react"
 import Layout from "../components/Layout"
+import { useAuth } from "../contexts/AuthContext"
+import { medicationService } from "../services/medicationService"
 
 interface Medication {
   id: number
@@ -21,47 +23,9 @@ interface Medication {
 
 const Medication: React.FC = () => {
   const [showModal, setShowModal] = useState(false)
-  const [medications, setMedications] = useState<Medication[]>([
-    {
-      id: 1,
-      name: "Paracetamol 500mg",
-      type: "Analgésico",
-      dosage: "Cada 8 horas",
-      frequency: "Cada 8 horas",
-      nextDose: "2:00 PM",
-      remainingDoses: 3,
-      duration: "7 días",
-      notifications: true,
-      status: "active",
-      icon: Pill,
-    },
-    {
-      id: 2,
-      name: "Amoxicilina 250mg",
-      type: "Antibiótico",
-      dosage: "Cada 12 horas",
-      frequency: "Cada 12 horas",
-      nextDose: "6:00 PM",
-      remainingDoses: 8,
-      duration: "10 días",
-      notifications: true,
-      status: "active",
-      icon: Pill,
-    },
-    {
-      id: 3,
-      name: "Ibuprofeno 400mg",
-      type: "Antiinflamatorio",
-      dosage: "Cada 6 horas",
-      frequency: "Cada 6 horas",
-      nextDose: "Finalizado",
-      remainingDoses: 0,
-      duration: "5 días",
-      notifications: false,
-      status: "completed",
-      icon: Pill,
-    },
-  ])
+  const [medications, setMedications] = useState<Medication[]>([])
+  const [loading, setLoading] = useState(true)
+  const { currentUser } = useAuth()
 
   const [newMedication, setNewMedication] = useState({
     name: "",
@@ -72,50 +36,190 @@ const Medication: React.FC = () => {
     notifications: true,
   })
 
+  useEffect(() => {
+    loadMedications()
+  }, [currentUser])
+
+  const loadMedications = async () => {
+    if (!currentUser) return
+
+    try {
+      const activeMeds = await medicationService.getActiveMedications(currentUser.id_usuario)
+      const historyMeds = await medicationService.getMedicationHistory(currentUser.id_usuario)
+
+      // Convertir datos de BD a formato del componente
+      const convertedActive = activeMeds.map((med) => ({
+        id: med.id_medicamento,
+        name: med.nombre,
+        type: med.tipo,
+        dosage: med.medicamento_detalle?.[0]?.frecuencia || "Según indicación",
+        frequency: med.medicamento_detalle?.[0]?.frecuencia || "Según indicación",
+        nextDose: med.medicamento_detalle?.[0]?.proxima_toma || "No definido",
+        remainingDoses: med.medicamento_detalle?.[0]?.dosis_restantes || 0,
+        duration: `${med.medicamento_detalle?.[0]?.duracion_dias || 0} días`,
+        notifications: true,
+        status: "active" as const,
+        icon: Pill,
+      }))
+
+      const convertedHistory = historyMeds.map((med) => ({
+        id: med.id_medicamento + 1000, // Evitar conflictos de ID
+        name: med.nombre,
+        type: med.tipo,
+        dosage: med.medicamento_detalle?.[0]?.frecuencia || "Según indicación",
+        frequency: med.medicamento_detalle?.[0]?.frecuencia || "Según indicación",
+        nextDose: "Finalizado",
+        remainingDoses: 0,
+        duration: `${med.medicamento_detalle?.[0]?.duracion_dias || 0} días`,
+        notifications: false,
+        status: med.medicamento_detalle?.[0]?.estado === "completado" ? ("completed" as const) : ("suspended" as const),
+        icon: Pill,
+      }))
+
+      // Si no hay datos en BD, usar datos por defecto
+      if (activeMeds.length === 0 && historyMeds.length === 0) {
+        setMedications([
+          {
+            id: 1,
+            name: "Paracetamol 500mg",
+            type: "Analgésico",
+            dosage: "Cada 8 horas",
+            frequency: "Cada 8 horas",
+            nextDose: "2:00 PM",
+            remainingDoses: 3,
+            duration: "7 días",
+            notifications: true,
+            status: "active",
+            icon: Pill,
+          },
+          {
+            id: 2,
+            name: "Amoxicilina 250mg",
+            type: "Antibiótico",
+            dosage: "Cada 12 horas",
+            frequency: "Cada 12 horas",
+            nextDose: "6:00 PM",
+            remainingDoses: 8,
+            duration: "10 días",
+            notifications: true,
+            status: "active",
+            icon: Pill,
+          },
+          {
+            id: 3,
+            name: "Ibuprofeno 400mg",
+            type: "Antiinflamatorio",
+            dosage: "Cada 6 horas",
+            frequency: "Cada 6 horas",
+            nextDose: "Finalizado",
+            remainingDoses: 0,
+            duration: "5 días",
+            notifications: false,
+            status: "completed",
+            icon: Pill,
+          },
+        ])
+      } else {
+        setMedications([...convertedActive, ...convertedHistory])
+      }
+    } catch (error) {
+      console.error("Error loading medications:", error)
+      // Usar datos por defecto en caso de error
+      setMedications([
+        {
+          id: 1,
+          name: "Paracetamol 500mg",
+          type: "Analgésico",
+          dosage: "Cada 8 horas",
+          frequency: "Cada 8 horas",
+          nextDose: "2:00 PM",
+          remainingDoses: 3,
+          duration: "7 días",
+          notifications: true,
+          status: "active",
+          icon: Pill,
+        },
+      ])
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const activeMedications = medications.filter((med) => med.status === "active")
   const medicationHistory = medications.filter((med) => med.status !== "active")
 
   const medicationTypes = ["Analgésico", "Antibiótico", "Antiinflamatorio", "Antihipertensivo", "Vitamina", "Otro"]
 
-  const getMedicationIcon = (type: string) => {
-    const iconMap: { [key: string]: any } = {
-      Analgésico: Pill,
-      Antibiótico: Pill,
-      Antiinflamatorio: Pill,
-      Antihipertensivo: Pill,
-      Vitamina: Pill,
-      Otro: Pill,
+  const handleSaveMedication = async () => {
+    if (
+      !currentUser ||
+      !newMedication.name ||
+      !newMedication.frequency ||
+      !newMedication.firstDose ||
+      !newMedication.duration
+    ) {
+      alert("Por favor completa todos los campos obligatorios")
+      return
     }
-    return iconMap[type] || Pill
+
+    try {
+      // Extraer número de días de la duración (ej: "7 días" -> 7)
+      const durationDays = Number.parseInt(newMedication.duration.replace(/\D/g, "")) || 7
+
+      const success = await medicationService.createMedication({
+        nombre: newMedication.name,
+        tipo: newMedication.type,
+        frecuencia: newMedication.frequency,
+        hora_primera_dosis: newMedication.firstDose,
+        duracion_dias: durationDays,
+        notificaciones: newMedication.notifications,
+        userId: currentUser.id_usuario,
+      })
+
+      if (success) {
+        // Agregar al estado local
+        const newMed: Medication = {
+          id: Date.now(), // ID temporal único
+          name: newMedication.name,
+          type: newMedication.type,
+          dosage: newMedication.frequency,
+          frequency: newMedication.frequency,
+          nextDose: newMedication.firstDose,
+          remainingDoses: durationDays * 3, // Estimación
+          duration: newMedication.duration,
+          notifications: newMedication.notifications,
+          status: "active",
+          icon: Pill,
+        }
+
+        setMedications([...medications, newMed])
+        setNewMedication({
+          name: "",
+          type: "Analgésico",
+          frequency: "",
+          firstDose: "",
+          duration: "",
+          notifications: true,
+        })
+        setShowModal(false)
+        alert("Medicamento guardado exitosamente")
+      } else {
+        alert("Error al guardar el medicamento")
+      }
+    } catch (error) {
+      console.error("Error saving medication:", error)
+      alert("Error al guardar el medicamento")
+    }
   }
 
-  const handleSaveMedication = () => {
-    if (newMedication.name && newMedication.frequency && newMedication.firstDose && newMedication.duration) {
-      const medication: Medication = {
-        id: medications.length + 1,
-        name: newMedication.name,
-        type: newMedication.type,
-        dosage: newMedication.frequency,
-        frequency: newMedication.frequency,
-        nextDose: newMedication.firstDose,
-        remainingDoses: 10, // Valor por defecto
-        duration: newMedication.duration,
-        notifications: newMedication.notifications,
-        status: "active",
-        icon: getMedicationIcon(newMedication.type),
-      }
-
-      setMedications([...medications, medication])
-      setNewMedication({
-        name: "",
-        type: "Analgésico",
-        frequency: "",
-        firstDose: "",
-        duration: "",
-        notifications: true,
-      })
-      setShowModal(false)
-    }
+  if (loading) {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-gray-900 pb-20 flex items-center justify-center">
+          <div className="text-white text-lg">Cargando medicamentos...</div>
+        </div>
+      </Layout>
+    )
   }
 
   return (
@@ -136,32 +240,43 @@ const Medication: React.FC = () => {
         <div className="p-4 space-y-6">
           {/* Medicación Activa */}
           <div>
-            <h2 className="text-lg font-semibold text-white mb-4">Medicación Activa</h2>
+            <h2 className="text-lg font-semibold text-white mb-4">Medicación Activa ({activeMedications.length})</h2>
             <div className="space-y-3">
-              {activeMedications.map((medication) => (
-                <div key={medication.id} className="rounded-lg p-4" style={{ backgroundColor: "#C3FFD3" }}>
-                  <div className="text-gray-800">
-                    <div className="flex items-center mb-2">
-                      <Pill size={20} className="mr-2 text-gray-700" />
-                      <span className="font-bold text-lg">{medication.name}</span>
-                    </div>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-center">
-                        <Clock size={16} className="mr-2" />
-                        <span>
-                          {medication.dosage} – {medication.remainingDoses} dosis restantes
-                        </span>
+              {activeMedications.length > 0 ? (
+                activeMedications.map((medication) => (
+                  <div
+                    key={`active-med-${medication.id}`} // Key único
+                    className="rounded-lg p-4"
+                    style={{ backgroundColor: "#C3FFD3" }}
+                  >
+                    <div className="text-gray-800">
+                      <div className="flex items-center mb-2">
+                        <Pill size={20} className="mr-2 text-gray-700" />
+                        <span className="font-bold text-lg">{medication.name}</span>
                       </div>
-                      <div>
-                        <strong>Próxima toma:</strong> {medication.nextDose}
-                      </div>
-                      <div>
-                        <strong>Tipo:</strong> {medication.type}
+                      <div className="space-y-1 text-sm">
+                        <div className="flex items-center">
+                          <Clock size={16} className="mr-2" />
+                          <span>
+                            {medication.dosage} – {medication.remainingDoses} dosis restantes
+                          </span>
+                        </div>
+                        <div>
+                          <strong>Próxima toma:</strong> {medication.nextDose}
+                        </div>
+                        <div>
+                          <strong>Tipo:</strong> {medication.type}
+                        </div>
+                        <div>
+                          <strong>Duración:</strong> {medication.duration}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-gray-400 text-center py-4">No tienes medicamentos activos</div>
+              )}
             </div>
           </div>
 
@@ -169,36 +284,49 @@ const Medication: React.FC = () => {
           <div>
             <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
               <Archive size={20} className="mr-2" />
-              Historial de medicamentos
+              Historial de medicamentos ({medicationHistory.length})
             </h2>
             <div className="space-y-3">
-              {medicationHistory.map((medication) => (
-                <div key={medication.id} className="rounded-lg p-4" style={{ backgroundColor: "#FAFFCA" }}>
-                  <div className="text-gray-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center">
-                        <Pill size={16} className="mr-2 text-gray-700" />
-                        <span className="font-bold">{medication.name}</span>
+              {medicationHistory.length > 0 ? (
+                medicationHistory.map((medication) => (
+                  <div
+                    key={`history-med-${medication.id}`} // Key único
+                    className="rounded-lg p-4"
+                    style={{ backgroundColor: "#FAFFCA" }}
+                  >
+                    <div className="text-gray-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center">
+                          <Pill size={16} className="mr-2 text-gray-700" />
+                          <span className="font-bold">{medication.name}</span>
+                        </div>
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            medication.status === "completed"
+                              ? "bg-green-100 text-green-800"
+                              : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          {medication.status === "completed" ? "Finalizado" : "Suspendido"}
+                        </span>
                       </div>
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          medication.status === "completed" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {medication.status === "completed" ? "Finalizado" : "Suspendido"}
-                      </span>
-                    </div>
-                    <div className="text-sm space-y-1">
-                      <div>
-                        <strong>Dosis:</strong> {medication.dosage}
-                      </div>
-                      <div>
-                        <strong>Tipo:</strong> {medication.type}
+                      <div className="text-sm space-y-1">
+                        <div>
+                          <strong>Dosis:</strong> {medication.dosage}
+                        </div>
+                        <div>
+                          <strong>Tipo:</strong> {medication.type}
+                        </div>
+                        <div>
+                          <strong>Duración:</strong> {medication.duration}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-gray-400 text-center py-4">No hay historial de medicamentos</div>
+              )}
             </div>
           </div>
         </div>
@@ -219,7 +347,7 @@ const Medication: React.FC = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Nombre del medicamento</label>
+                  <label className="block text-sm font-medium mb-1">Nombre del medicamento *</label>
                   <input
                     type="text"
                     placeholder="Ej: Paracetamol 500mg"
@@ -237,7 +365,7 @@ const Medication: React.FC = () => {
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
                   >
                     {medicationTypes.map((type) => (
-                      <option key={type} value={type}>
+                      <option key={`type-${type}`} value={type}>
                         {type}
                       </option>
                     ))}
@@ -245,7 +373,7 @@ const Medication: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Frecuencia</label>
+                  <label className="block text-sm font-medium mb-1">Frecuencia *</label>
                   <input
                     type="text"
                     placeholder="Ej: Cada 8 horas"
@@ -256,7 +384,7 @@ const Medication: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Hora de primera dosis</label>
+                  <label className="block text-sm font-medium mb-1">Hora de primera dosis *</label>
                   <input
                     type="time"
                     value={newMedication.firstDose}
@@ -266,7 +394,7 @@ const Medication: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Duración del tratamiento</label>
+                  <label className="block text-sm font-medium mb-1">Duración del tratamiento *</label>
                   <input
                     type="text"
                     placeholder="Ej: 7 días"

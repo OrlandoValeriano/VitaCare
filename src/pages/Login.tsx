@@ -5,31 +5,39 @@ import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { User, Lock } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
-import { useUser } from "../contexts/UserContext"
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [rememberUser, setRememberUser] = useState(false)
   const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
-  const { login } = useAuth()
-  const { hasCompleteProfile } = useUser()
+  const { login, hasCompleteProfile } = useAuth()
   const navigate = useNavigate()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setIsLoading(true)
 
-    if (login(username, password)) {
-      // Redirigir según el estado del perfil
-      if (hasCompleteProfile) {
-        navigate("/dashboard")
+    try {
+      const success = await login(username, password)
+
+      if (success) {
+        // Redirigir según el estado del perfil
+        if (hasCompleteProfile) {
+          navigate("/dashboard")
+        } else {
+          navigate("/complete-profile")
+        }
       } else {
-        navigate("/complete-profile")
+        setError("Usuario o contraseña incorrectos")
       }
-    } else {
-      setError("Usuario o contraseña incorrectos")
+    } catch (error) {
+      setError("Error al iniciar sesión")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -50,6 +58,7 @@ const Login: React.FC = () => {
               onChange={(e) => setUsername(e.target.value)}
               className="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-white placeholder-gray-400"
               required
+              disabled={isLoading}
             />
           </div>
 
@@ -62,6 +71,7 @@ const Login: React.FC = () => {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-white placeholder-gray-400"
               required
+              disabled={isLoading}
             />
           </div>
 
@@ -72,6 +82,7 @@ const Login: React.FC = () => {
               checked={rememberUser}
               onChange={(e) => setRememberUser(e.target.checked)}
               className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+              disabled={isLoading}
             />
             <label htmlFor="remember" className="ml-2 text-sm text-gray-300">
               Recordar usuario
@@ -82,10 +93,11 @@ const Login: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full bg-green-400 text-gray-900 py-3 rounded-lg hover:bg-green-300 transition duration-200 font-medium"
+            disabled={isLoading}
+            className="w-full bg-green-400 text-gray-900 py-3 rounded-lg hover:bg-green-300 transition duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#C3FFD3" }}
           >
-            Acceder
+            {isLoading ? "Iniciando sesión..." : "Acceder"}
           </button>
         </form>
 

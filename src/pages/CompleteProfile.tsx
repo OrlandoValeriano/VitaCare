@@ -4,7 +4,8 @@ import type React from "react"
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Plus, X } from "lucide-react"
-import { useUser } from "../contexts/UserContext"
+import { useAuth } from "../contexts/AuthContext"
+import { profileService } from "../services/profileService"
 
 const CompleteProfile: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -15,8 +16,10 @@ const CompleteProfile: React.FC = () => {
     condiciones: [""],
     alergias: [""],
   })
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
 
-  const { setUserProfile } = useUser()
+  const { currentUser } = useAuth()
   const navigate = useNavigate()
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -52,20 +55,53 @@ const CompleteProfile: React.FC = () => {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    const profileData = {
-      edad: Number.parseInt(formData.edad),
-      talla: Number.parseInt(formData.talla),
-      peso: Number.parseInt(formData.peso),
-      tipoPaciente: formData.tipoPaciente,
-      condiciones: formData.condiciones.filter((c) => c.trim() !== ""),
-      alergias: formData.alergias.filter((a) => a.trim() !== ""),
+    if (!currentUser) {
+      setError("Usuario no autenticado")
+      return
     }
 
-    setUserProfile(profileData)
-    navigate("/dashboard")
+    setIsLoading(true)
+    setError("")
+
+    try {
+      // Crear perfil de usuario
+      const profileData = {
+        id_usuario: currentUser.id_usuario,
+        edad: Number.parseInt(formData.edad),
+        talla_cm: Number.parseInt(formData.talla),
+        peso_kg: Number.parseFloat(formData.peso),
+        tipo_paciente: formData.tipoPaciente,
+      }
+
+      const profile = await profileService.createProfile(profileData)
+
+      if (!profile) {
+        setError("Error al crear el perfil")
+        return
+      }
+
+      // Sincronizar condiciones médicas
+      const condiciones = formData.condiciones.filter((c) => c.trim() !== "")
+      if (condiciones.length > 0) {
+        await profileService.syncUserConditions(currentUser.id_usuario, condiciones)
+      }
+
+      // Sincronizar alergias
+      const alergias = formData.alergias.filter((a) => a.trim() !== "")
+      if (alergias.length > 0) {
+        await profileService.syncUserAllergies(currentUser.id_usuario, alergias)
+      }
+
+      navigate("/dashboard")
+    } catch (error) {
+      console.error("Error completing profile:", error)
+      setError("Error al completar el perfil")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -86,6 +122,7 @@ const CompleteProfile: React.FC = () => {
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-white"
                 required
+                disabled={isLoading}
               />
             </div>
             <div>
@@ -97,17 +134,20 @@ const CompleteProfile: React.FC = () => {
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-white"
                 required
+                disabled={isLoading}
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">Peso (kg)</label>
               <input
                 type="number"
+                step="0.1"
                 name="peso"
                 value={formData.peso}
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-white"
                 required
+                disabled={isLoading}
               />
             </div>
           </div>
@@ -120,11 +160,13 @@ const CompleteProfile: React.FC = () => {
               onChange={handleChange}
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-white"
               required
+              disabled={isLoading}
             >
               <option value="">Seleccionar tipo</option>
-              <option value="Paciente regular">Paciente regular</option>
-              <option value="Paciente crónico">Paciente crónico</option>
-              <option value="Paciente de emergencia">Paciente de emergencia</option>
+              <option value="Ambulatorio">Ambulatorio</option>
+              <option value="Hospitalizado">Hospitalizado</option>
+              <option value="Urgencias">Urgencias</option>
+              <option value="Cuidados intensivos">Cuidados intensivos</option>
             </select>
           </div>
 
@@ -138,12 +180,14 @@ const CompleteProfile: React.FC = () => {
                   onChange={(e) => handleArrayChange(index, e.target.value, "condiciones")}
                   placeholder="Condición médica"
                   className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-white placeholder-gray-400"
+                  disabled={isLoading}
                 />
                 {formData.condiciones.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeField(index, "condiciones")}
                     className="p-2 text-red-400 hover:bg-red-900 rounded-lg"
+                    disabled={isLoading}
                   >
                     <X size={16} />
                   </button>
@@ -154,6 +198,7 @@ const CompleteProfile: React.FC = () => {
               type="button"
               onClick={() => addField("condiciones")}
               className="flex items-center space-x-1 text-green-300 hover:text-green-200"
+              disabled={isLoading}
             >
               <Plus size={16} />
               <span>Agregar condición</span>
@@ -170,12 +215,14 @@ const CompleteProfile: React.FC = () => {
                   onChange={(e) => handleArrayChange(index, e.target.value, "alergias")}
                   placeholder="Alergia"
                   className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-white placeholder-gray-400"
+                  disabled={isLoading}
                 />
                 {formData.alergias.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeField(index, "alergias")}
                     className="p-2 text-red-400 hover:bg-red-900 rounded-lg"
+                    disabled={isLoading}
                   >
                     <X size={16} />
                   </button>
@@ -186,6 +233,7 @@ const CompleteProfile: React.FC = () => {
               type="button"
               onClick={() => addField("alergias")}
               className="flex items-center space-x-1 text-green-300 hover:text-green-200"
+              disabled={isLoading}
             >
               <Plus size={16} />
               <span>Agregar alergia</span>
@@ -198,12 +246,15 @@ const CompleteProfile: React.FC = () => {
             </p>
           </div>
 
+          {error && <div className="text-red-400 text-sm text-center">{error}</div>}
+
           <button
             type="submit"
-            className="w-full text-gray-900 py-3 rounded-lg hover:opacity-90 transition duration-200 font-medium"
+            disabled={isLoading}
+            className="w-full text-gray-900 py-3 rounded-lg hover:opacity-90 transition duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#C3FFD3" }}
           >
-            Continuar
+            {isLoading ? "Guardando..." : "Continuar"}
           </button>
         </form>
       </div>

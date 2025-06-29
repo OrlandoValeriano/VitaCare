@@ -1,82 +1,85 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Plus, CalendarIcon, X, Calendar, Clock, FileText, CheckCircle } from "lucide-react"
 import Layout from "../components/Layout"
-
-interface Appointment {
-  id: number
-  date: string
-  time: string
-  specialty: string
-  doctor: string
-  type: "Hospitalaria" | "Virtual" | "Domiciliaria"
-  location?: string
-  notes?: string
-  status: "upcoming" | "completed"
-}
+import { useAuth } from "../contexts/AuthContext"
+import { appointmentService } from "../services/appointmentService"
+import type { Cita } from "../types/database"
 
 const Appointments: React.FC = () => {
   const [showModal, setShowModal] = useState(false)
   const [selectedDate, setSelectedDate] = useState(new Date())
-  const [appointments, setAppointments] = useState<Appointment[]>([
-    {
-      id: 1,
-      date: "2025-01-16",
-      time: "10:00 AM",
-      specialty: "Nutriólogo",
-      doctor: "Dr. Sánchez",
-      type: "Hospitalaria",
-      status: "upcoming",
-    },
-    {
-      id: 2,
-      date: "2025-01-15",
-      time: "4:00 PM",
-      specialty: "Hospitalaria",
-      doctor: "Dr. García",
-      type: "Hospitalaria",
-      notes: "Presión arterial elevada",
-      status: "completed",
-    },
-  ])
+  const [upcomingAppointments, setUpcomingAppointments] = useState<Cita[]>([])
+  const [pastAppointments, setPastAppointments] = useState<Cita[]>([])
+  const [loading, setLoading] = useState(true)
+  const { currentUser } = useAuth()
 
   const [newAppointment, setNewAppointment] = useState({
-    date: "",
-    time: "",
-    specialty: "",
+    fecha: "",
+    hora: "",
+    especialidad: "",
     motivo: "",
-    type: "Hospitalaria" as "Hospitalaria" | "Virtual" | "Domiciliaria",
-    location: "",
+    tipo_atencion: "Hospitalaria" as "Hospitalaria" | "Virtual" | "Domiciliaria",
+    ubicacion: "",
   })
 
-  const upcomingAppointments = appointments.filter((apt) => apt.status === "upcoming")
-  const pastAppointments = appointments.filter((apt) => apt.status === "completed")
+  useEffect(() => {
+    loadAppointments()
+  }, [currentUser])
 
-  const handleCreateAppointment = () => {
-    if (newAppointment.date && newAppointment.time && newAppointment.specialty) {
-      const appointment: Appointment = {
-        id: appointments.length + 1,
-        date: newAppointment.date,
-        time: newAppointment.time,
-        specialty: newAppointment.specialty,
+  const loadAppointments = async () => {
+    if (!currentUser) return
+
+    try {
+      const upcoming = await appointmentService.getUpcomingAppointments(currentUser.id_usuario)
+      const history = await appointmentService.getAppointmentHistory(currentUser.id_usuario)
+
+      setUpcomingAppointments(upcoming)
+      setPastAppointments(history)
+    } catch (error) {
+      console.error("Error loading appointments:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCreateAppointment = async () => {
+    if (!currentUser || !newAppointment.fecha || !newAppointment.hora || !newAppointment.especialidad) {
+      return
+    }
+
+    try {
+      const appointmentData: Omit<Cita, "id_cita"> = {
+        id_usuario: currentUser.id_usuario,
+        fecha: newAppointment.fecha,
+        hora: newAppointment.hora,
+        especialidad: newAppointment.especialidad,
+        motivo: newAppointment.motivo || "Consulta general",
+        tipo_atencion: newAppointment.tipo_atencion,
+        ubicacion: newAppointment.ubicacion || null,
         doctor: "Dr. Asignado",
-        type: newAppointment.type,
-        location: newAppointment.location,
-        status: "upcoming",
+        estado: "Pendiente",
+        notas: null,
       }
 
-      setAppointments([...appointments, appointment])
-      setNewAppointment({
-        date: "",
-        time: "",
-        specialty: "",
-        motivo: "",
-        type: "Hospitalaria",
-        location: "",
-      })
-      setShowModal(false)
+      const created = await appointmentService.createAppointment(appointmentData)
+
+      if (created) {
+        setUpcomingAppointments([...upcomingAppointments, created])
+        setNewAppointment({
+          fecha: "",
+          hora: "",
+          especialidad: "",
+          motivo: "",
+          tipo_atencion: "Hospitalaria",
+          ubicacion: "",
+        })
+        setShowModal(false)
+      }
+    } catch (error) {
+      console.error("Error creating appointment:", error)
     }
   }
 
@@ -98,6 +101,7 @@ const Appointments: React.FC = () => {
     const startingDayOfWeek = firstDay.getDay()
 
     const days = []
+    const allAppointments = [...upcomingAppointments, ...pastAppointments]
 
     // Empty cells for days before the first day of the month
     for (let i = 0; i < startingDayOfWeek; i++) {
@@ -107,11 +111,11 @@ const Appointments: React.FC = () => {
     // Days of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const dateString = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-      const hasAppointment = appointments.some((apt) => apt.date === dateString)
+      const hasAppointment = allAppointments.some((apt) => apt.fecha === dateString)
 
       days.push(
         <div
-          key={day}
+          key={`day-${day}`} // Key único para cada día
           className={`h-8 flex items-center justify-center text-sm rounded cursor-pointer transition-colors ${
             hasAppointment
               ? "bg-blue-600 text-white hover:bg-blue-500"
@@ -140,6 +144,16 @@ const Appointments: React.FC = () => {
     "Noviembre",
     "Diciembre",
   ]
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="p-4 pb-20 space-y-6 bg-gray-900 min-h-screen flex items-center justify-center">
+          <div className="text-white text-lg">Cargando citas...</div>
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>
@@ -177,8 +191,11 @@ const Appointments: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-7 gap-1 mb-2">
-            {["D", "L", "M", "M", "J", "V", "S"].map((day) => (
-              <div key={day} className="h-8 flex items-center justify-center text-sm font-medium text-gray-400">
+            {["D", "L", "M", "M", "J", "V", "S"].map((day, index) => (
+              <div
+                key={`weekday-${index}`}
+                className="h-8 flex items-center justify-center text-sm font-medium text-gray-400"
+              >
                 {day}
               </div>
             ))}
@@ -191,20 +208,29 @@ const Appointments: React.FC = () => {
         <div>
           <h2 className="text-lg font-semibold text-white mb-3 flex items-center">
             <Calendar size={20} className="mr-2" />
-            Próximas citas
+            Próximas citas ({upcomingAppointments.length})
           </h2>
           <div className="space-y-3">
-            {upcomingAppointments.map((appointment) => (
-              <div key={appointment.id} className="rounded-lg p-4" style={{ backgroundColor: "#C3FFD3" }}>
-                <div className="text-gray-800">
-                  <div className="font-semibold">
-                    {formatDate(appointment.date)} - {appointment.time}
+            {upcomingAppointments.length > 0 ? (
+              upcomingAppointments.map((appointment) => (
+                <div
+                  key={`upcoming-${appointment.id_cita}`}
+                  className="rounded-lg p-4"
+                  style={{ backgroundColor: "#C3FFD3" }}
+                >
+                  <div className="text-gray-800">
+                    <div className="font-semibold">
+                      {formatDate(appointment.fecha)} - {appointment.hora}
+                    </div>
+                    <div className="text-sm mt-1">{appointment.especialidad}</div>
+                    <div className="text-sm">{appointment.doctor}</div>
+                    <div className="text-sm text-gray-600">{appointment.tipo_atencion}</div>
                   </div>
-                  <div className="text-sm mt-1">{appointment.specialty}</div>
-                  <div className="text-sm">{appointment.doctor}</div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="text-gray-400 text-center py-4">No tienes citas próximas</div>
+            )}
           </div>
         </div>
 
@@ -212,20 +238,30 @@ const Appointments: React.FC = () => {
         <div>
           <h2 className="text-lg font-semibold text-white mb-3 flex items-center">
             <FileText size={20} className="mr-2" />
-            Historial de citas
+            Historial de citas ({pastAppointments.length})
           </h2>
           <div className="space-y-3">
-            {pastAppointments.map((appointment) => (
-              <div key={appointment.id} className="rounded-lg p-4" style={{ backgroundColor: "#FAFFCA" }}>
-                <div className="text-gray-800">
-                  <div className="font-semibold">
-                    {formatDate(appointment.date)} - {appointment.time}
+            {pastAppointments.length > 0 ? (
+              pastAppointments.map((appointment) => (
+                <div
+                  key={`past-${appointment.id_cita}`}
+                  className="rounded-lg p-4"
+                  style={{ backgroundColor: "#FAFFCA" }}
+                >
+                  <div className="text-gray-800">
+                    <div className="font-semibold">
+                      {formatDate(appointment.fecha)} - {appointment.hora}
+                    </div>
+                    <div className="text-sm mt-1">{appointment.especialidad}</div>
+                    <div className="text-sm">{appointment.doctor}</div>
+                    <div className="text-sm">Estado: {appointment.estado}</div>
+                    {appointment.notas && <div className="text-sm text-gray-600 mt-1">Notas: {appointment.notas}</div>}
                   </div>
-                  <div className="text-sm mt-1">Consulta General - {appointment.specialty}</div>
-                  {appointment.notes && <div className="text-sm text-gray-600 mt-1">Notas: {appointment.notes}</div>}
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="text-gray-400 text-center py-4">No hay historial de citas</div>
+            )}
           </div>
         </div>
 
@@ -252,8 +288,8 @@ const Appointments: React.FC = () => {
                     </label>
                     <input
                       type="date"
-                      value={newAppointment.date}
-                      onChange={(e) => setNewAppointment({ ...newAppointment, date: e.target.value })}
+                      value={newAppointment.fecha}
+                      onChange={(e) => setNewAppointment({ ...newAppointment, fecha: e.target.value })}
                       className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
                     />
                   </div>
@@ -264,26 +300,26 @@ const Appointments: React.FC = () => {
                     </label>
                     <input
                       type="time"
-                      value={newAppointment.time}
-                      onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })}
+                      value={newAppointment.hora}
+                      onChange={(e) => setNewAppointment({ ...newAppointment, hora: e.target.value })}
                       className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Especialidad: Cardiología</label>
+                  <label className="block text-sm font-medium mb-1">Especialidad:</label>
                   <input
                     type="text"
                     placeholder="Ej. Cardiología"
-                    value={newAppointment.specialty}
-                    onChange={(e) => setNewAppointment({ ...newAppointment, specialty: e.target.value })}
+                    value={newAppointment.especialidad}
+                    onChange={(e) => setNewAppointment({ ...newAppointment, especialidad: e.target.value })}
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Motivo: Revisión mensual</label>
+                  <label className="block text-sm font-medium mb-1">Motivo:</label>
                   <input
                     type="text"
                     placeholder="Motivo de la consulta"
@@ -300,10 +336,12 @@ const Appointments: React.FC = () => {
                       <label key={type} className="flex items-center">
                         <input
                           type="radio"
-                          name="type"
+                          name="tipo_atencion"
                           value={type}
-                          checked={newAppointment.type === type}
-                          onChange={(e) => setNewAppointment({ ...newAppointment, type: e.target.value as any })}
+                          checked={newAppointment.tipo_atencion === type}
+                          onChange={(e) =>
+                            setNewAppointment({ ...newAppointment, tipo_atencion: e.target.value as any })
+                          }
                           className="mr-2"
                         />
                         <span>{type}</span>
@@ -317,8 +355,8 @@ const Appointments: React.FC = () => {
                   <input
                     type="text"
                     placeholder="Ubicación"
-                    value={newAppointment.location}
-                    onChange={(e) => setNewAppointment({ ...newAppointment, location: e.target.value })}
+                    value={newAppointment.ubicacion}
+                    onChange={(e) => setNewAppointment({ ...newAppointment, ubicacion: e.target.value })}
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400"
                   />
                 </div>
